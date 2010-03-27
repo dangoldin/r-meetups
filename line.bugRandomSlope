@@ -1,0 +1,42 @@
+model {
+
+for (i in 1:N) {
+   individual.beta2[i] ~ dnorm(beta[2],tauBeta2)
+}
+
+for (i in 1:8) {
+  beta3[i] ~ dnorm(beta[3],tauBeta3)
+  beta4[i] ~ dnorm(beta[4],tauBeta4)
+}
+
+for (i in 1:N) {
+  for (t in 1:T[i]) {
+    mu[i,t] <- beta[1] + (individual.beta2[i] * log(1+time[i,t])) + (beta3[1]*exp(beta4[1]*timesincedose1[i,t]))+ (beta3[2]*exp(beta4[2]*timesincedose2[i,t]))+ (beta3[3]*exp(beta4[3]*timesincedose3[i,t]))+ (beta3[4]*exp(beta4[4]*timesincedose4[i,t]))+ (beta3[5]*exp(beta4[5]*timesincedose5[i,t]))+ (beta3[6]*exp(beta4[6]*timesincedose6[i,t]))+ (beta3[7]*exp(beta4[7]*timesincedose7[i,t]))+ (beta3[8]*exp(beta4[8]*timesincedose8[i,t]))
+    y[i,t] ~ dnorm(mu[i,t],tau);
+  }
+}
+
+#beta[1:3] ~ dmnorm(zeroes[],prec.beta[,])
+#prec.beta[1:3,1:3] ~ dwish(B[,],3)
+#for (k in 1:3) {
+#  B[k,k] <- 1;
+#  for (l in (k+1):3) {
+#    B[k,l] <- 0;
+#    B[l,k] <- B[k,l];
+#  }
+#}
+
+beta[1] ~ dnorm(0.0,1.0E-4)
+beta[2] ~ dnorm(0.0,1.0E-4)
+beta[3] ~ dnorm(0.0,1.0E-4)
+beta[4] ~ dnorm(0.0,1.0E-4)
+
+tauBeta2 ~ dgamma(1,1)
+tauBeta3 ~ dgamma(1,1)
+tauBeta4 ~ dgamma(1,1)
+tau ~ dgamma(1.0E-3,1.0E-3);
+
+
+}
+
+

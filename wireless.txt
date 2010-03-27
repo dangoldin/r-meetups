@@ -1,0 +1,393 @@
+
+# BR data: deleted the give obsverataions at the APs and also the obsvervation at 12,130 gross outlier
+
+# CA data: removed 4 downstairs and 2 upstairs at the APs
+
+$BURNIN = 10000;
+$NUMITER = 100000;
+$CORRIDOR = 3;   # this is the size of the corridor in feet. 
+
+$LOCATION = 2;   # 1 = BR    2 = CA down    3 = CA up
+
+if ($LOCATION == 1) {
+    $NUMAP =  5;    # number of access points at BR
+}
+elsif ($LOCATION == 2) {
+    $NUMAP =  6;    # number of access points at CA down
+}
+elsif ($LOCATION == 3) {
+    $NUMAP =  4;    # number of access points at CA up
+}
+
+# begin with 0,0 because the APs are indexed base 1
+
+# Basking Ridge Floor 2 access points
+if ($LOCATION == 1) {
+    @APX = (0,19,213,206,12,110.7);
+    @APY = (0,49,34,120,118,66);
+}
+elsif ($LOCATION == 2) {
+# california downstairs access points
+    @APX = (0,42,103,181,180,132,132);
+    @APY = (0,106,106,106,38,168,71);
+}
+elsif ($LOCATION == 3) {
+# california upstairs access points
+    @APX = (0,42,103,181,180);
+    @APY = (0,106,106,106,38);
+}
+
+$N = 5; # set to -1 to use all the data
+
+if ($LOCATION == 1) {
+    open(OUTFILE,">brAnalysis.txt");
+}
+elsif ($LOCATION == 2) {
+    open(OUTFILE,">caDownAnalysis.txt");
+}
+elsif ($LOCATION == 3) {
+    open(OUTFILE,">caUpAnalysis.txt");
+}
+print OUTFILE "numiter\tH\tcorridor\tcorridorMain\tcorridorInter\tinformative\tN\tnumberNas\tavError\tmedianError\tsingleError\n";
+
+if ($LOCATION == 1) {
+    @candidateNs = (6,11,21,51,101,253);
+}
+elsif ($LOCATION == 2) {
+    @candidateNs = (6,11,21,51,146);
+#    @candidateNs = (51,146);
+}
+elsif ($LOCATION == 3) {
+    @candidateNs = (6,11,21,56);
+}
+
+foreach $HIERARCHY (0,1) {
+    if ($HIERARCHY == 0) {@infTemp=(0);} else {@infTemp=(0,1);}
+#    foreach $INFORMATIVE (@infTemp) {
+    foreach $INFORMATIVE (0) {
+	foreach $N (@candidateNs) {
+	    foreach $numberNAs ($N) {
+		foreach $CORRIDORMAIN (0) {   # turn this on to include a corridor main affect
+		    foreach $CORRIDORINTER (0) {  # turn this on to have a corridor-distance interaction
+
+
+if ($numberNAs <= $N) {
+
+if (($N == 253)||($N == 146)||($N == 56)) {
+    $REPETITIONS = 1;
+}
+else {
+    $REPETITIONS = 30;
+}
+
+foreach $mainIter (1..$REPETITIONS) {
+
+$naString = "";
+for ($i=0; $i < $numberNAs; $i++) {$naString .= ",NA";}
+
+# first read in the raw data
+if ($LOCATION == 1) {
+    open(RAW,"wireless_raw_data.txt");
+}
+elsif ($LOCATION == 2) {
+    open(RAW,"caDown_wireless_raw_data.txt");
+}
+elsif ($LOCATION == 3) {
+    open(RAW,"caUp_wireless_raw_data.txt");
+}
+
+$i = 0;
+while (<RAW>) {
+    chomp;
+    @temp = split "\t";
+    $X[$i] = $temp[0];
+    $Y[$i] = $temp[1];
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	$S[$ap][$i] = $temp[$ap+1];
+    }
+    $index{$i} = rand(1);
+#    if ( ($i==155)||($i==182)||($i==114)||($i==124)||($i==205)||($i==121) ) {
+#	$index{$i} = -1;
+#    }
+    $i++;
+}
+@randomIndex = sort { $index{$a} <=> $index{$b} } keys %index;   
+
+if ($N < 0) {
+    $N = $i;   
+}
+close(RAW);
+
+if ($numberNAs == $N) {
+    $naString = substr($naString,1);   # gets rid of the leading ","
+}
+
+#$X[0] = 254;
+#$Y[0] = 1;
+
+# now write out the data for BUGS
+open(DATA,">wireless_dat.txt");
+print DATA "list(\n";
+print DATA "list(X=c(",join(",",@X[@randomIndex[0..($N-$numberNAs-1)]]),$naString,"),\n";
+print DATA "list(Y=c(",join(",",@Y[@randomIndex[0..($N-$numberNAs-1)]]),$naString,"),\n";
+for ($ap=1; $ap<=$NUMAP; $ap++) {
+
+    $temp=$S[$ap][$randomIndex[0]];
+    for ($k = 1; $k <= ($N-1); $k++) {
+	$temp = $temp.",".$S[$ap][$randomIndex[$k]];
+    }
+    print DATA "list(S$ap=c($temp),\n";
+#    print DATA "list(S$ap=c(",join(",",@S[$ap][@randomIndex[0..($N-1)]]),"),\n";
+}
+print DATA ")\n";
+close(DATA);
+
+
+
+# write the code
+open(CODE,">wireless_mod.txt");
+print CODE "model; \n";
+print CODE "{ \n";
+print CODE "   for( i in 1 : $N ) { \n";
+print CODE " \n";
+if ($LOCATION == 1) {
+    print CODE "	X[i] ~ dunif(0,255) \n";
+    print CODE "	Y[i] ~ dunif(0,144) \n";
+}
+elsif (($LOCATION == 2)||($LOCATION == 3)) {
+    print CODE "	X[i] ~ dunif(0,250) \n";
+    print CODE "	Y[i] ~ dunif(0,175) \n";
+}
+for ($ap=1; $ap<=$NUMAP; $ap++) {
+    print CODE "	D$ap\[i] <- log(1+sqrt( pow(X[i]-".$APX[$ap].",2) + pow(Y[i]-".$APY[$ap].",2) ) )  \n";
+}
+
+if ($CORRIDOR > 0) {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "    C$ap\[i] <- step(1-step(abs(X[i]-".$APX[$ap].")-$CORRIDOR)+1-step(abs(Y[i]-".$APY[$ap].")-$CORRIDOR) - 0.5) \n";
+    }
+}
+
+if (($CORRIDOR > 0) && ($CORRIDORMAIN==1) && ($CORRIDORINTER==1)) {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "	 m$ap\[i] <- b0$ap + (b1$ap * D$ap\[i]) + (b2$ap * C$ap\[i]) + (b3$ap * C$ap\[i] * D$ap\[i])  \n";
+    }
+}
+elsif (($CORRIDOR > 0) && ($CORRIDORMAIN==1)) {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "	 m$ap\[i] <- b0$ap + (b1$ap * D$ap\[i]) + (b2$ap * C$ap\[i]) \n";
+    }
+}
+else {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "	 m$ap\[i] <- b0$ap + (b1$ap * D$ap\[i]) \n";
+    }
+}
+for ($ap=1; $ap<=$NUMAP; $ap++) {
+    print CODE "      S$ap\[i] ~ dnorm(m$ap\[i],tau$ap) \n";
+}
+print CODE "  } \n";
+
+for ($ap=1; $ap<=$NUMAP; $ap++) {
+    print CODE "      tau$ap ~ dgamma(0.001,0.001) \n";
+}
+print CODE " \n";
+
+if ($HIERARCHY ==1) {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "      b0$ap ~ dnorm( b0,taub0) \n";
+    }
+    if ($INFORMATIVE == 1) {
+	print CODE "      b0 ~ dnorm( -10,0.01) \n";
+    }
+    else {
+	print CODE "      b0 ~ dnorm( 0.0,1.0E-6) \n";
+    }
+    print CODE "      taub0 ~ dgamma(0.001,0.001) \n";
+    print CODE " \n";
+
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "      b1$ap ~ dnorm( b1,taub1) \n";
+    }
+    if ($INFORMATIVE == 1) {
+	print CODE "      b1 ~ dnorm( 19.5,0.1) \n";
+    }
+    else {
+	print CODE "      b1 ~ dnorm( 0.0,1.0E-6) \n";
+    }
+    print CODE "      taub1 ~ dgamma(0.001,0.001) \n";
+
+    if (($CORRIDOR > 0) && ($CORRIDORMAIN==1)) {
+	for ($ap=1; $ap<=$NUMAP; $ap++) {
+	    print CODE "      b2$ap ~ dnorm( b2,taub2) \n";
+	}
+	print CODE "      b2 ~ dnorm( 0.0,0.1) \n";
+	print CODE "      taub2 ~ dgamma(3,2) \n";
+    }	
+    if (($CORRIDOR > 0) && ($CORRIDORINTER==1)) {
+	for ($ap=1; $ap<=$NUMAP; $ap++) {
+	    print CODE "      b3$ap ~ dnorm( b3,taub3) \n";
+	}
+	print CODE "      b3 ~ dnorm( 0.0,1.0E-6) \n";
+	print CODE "      taub3 ~ dgamma(1,1) \n";
+	print CODE " \n";
+    }
+}
+else {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "      b0$ap ~ dnorm( 0,1.0E-6) \n";
+    }
+    print CODE " \n";
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print CODE "      b1$ap ~ dnorm( 0,1.0E-6) \n";
+    }
+    if (($CORRIDOR > 0) && ($CORRIDORMAIN==1)) {
+	for ($ap=1; $ap<=$NUMAP; $ap++) {
+	    print CODE "      b2$ap ~ dnorm( 0,1.0E-6) \n";
+	}
+    }
+    if (($CORRIDOR > 0) && ($CORRIDORINTER==1)) {
+	for ($ap=1; $ap<=$NUMAP; $ap++) {
+	    print CODE "      b3$ap ~ dnorm( 0,1.0E-6) \n";
+	}
+    }
+}
+print CODE " \n";
+print CODE "} \n";
+print CODE " \n";
+close(CODE);
+
+
+# write the inits
+open(INITS,">wireless_in.txt");
+print INITS "list(";
+for ($ap=1; $ap<=$NUMAP; $ap++) {
+    print INITS "tau$ap=0.1,";
+}
+print INITS " \n";
+
+for ($ap=1; $ap<$NUMAP; $ap++) {
+    print INITS "b0$ap=0,b1$ap=0,";
+}
+print INITS "b0$NUMAP=0,b1$NUMAP=0\n";
+
+if (($CORRIDOR > 0) && ($CORRIDORMAIN==1)) {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print INITS ",b2$ap=0";
+    }
+    print INITS "\n";
+}
+if (($CORRIDOR > 0) && ($CORRIDORINTER==1)) {
+    for ($ap=1; $ap<=$NUMAP; $ap++) {
+	print INITS ",b3$ap=0";
+    }
+    print INITS "\n";
+}
+if ($HIERARCHY == 1) {
+    print INITS ",b0=0, b1=0, taub0=0.01, taub1=0.01";
+    if (($CORRIDOR > 0) && ($CORRIDORMAIN==1)) {
+	print INITS ",b2=0,taub2=0.01\n";
+    }
+    if (($CORRIDOR > 0) && ($CORRIDORINTER==1)) {
+	print INITS ",b3=0,taub3=0.01\n";
+    }
+}
+print INITS ");";
+close(INITS);
+
+
+# write the script
+
+open(SCRIPT,">wireless_script.txt");
+print SCRIPT "display(\'log\') \n";
+print SCRIPT "check(\'avaya\\wireless_mod.txt\') \n";
+print SCRIPT "data(\'avaya\\wireless_dat.txt\') \n";
+print SCRIPT "compile(1) \n";
+print SCRIPT "inits(1, \'avaya\\wireless_in.txt\') \n";
+print SCRIPT "gen.inits() \n";
+print SCRIPT "over.relax() \n";
+print SCRIPT "update($BURNIN) \n";
+print SCRIPT "set(X) \n";
+print SCRIPT "set(Y) \n";
+print SCRIPT "update($NUMITER) \n";
+print SCRIPT "stats(*) \n";
+print SCRIPT "history(*) \n";
+print SCRIPT "save(\'avaya\\wireless_Log.txt\') \n";
+print SCRIPT "save(\'avaya\\wireless_Log\') \n";
+print SCRIPT "quit() \n";
+close(SCRIPT);
+
+
+
+
+
+# now run BUGS
+system "c:\\winbugs14\\winbugs14.exe /PAR avaya\\wireless_script.txt";
+
+
+# now process the output
+
+open(BUGS,"wireless_Log.txt");
+  # first get pass the header crap
+do {
+    $temp = <BUGS>
+    } until ($temp =~ /MC error/);
+  # then pick up the x's
+for ($i = 0; $i < $numberNAs; $i++) {
+    $temp = <BUGS>;
+    @temp = split "\t", $temp;
+    $temp[1] =~ /\[(.*)\]/; 
+    $index = $1 - 1;
+    $xPred[$index] = $temp[2];
+}
+  # and then pick up the y's
+for ($i = 0; $i < $numberNAs; $i++) {
+    $temp = <BUGS>;
+    @temp = split "\t", $temp;
+    $temp[1] =~ /\[(.*)\]/; 
+    $index = $1 - 1;
+    $yPred[$index] = $temp[2];
+}
+close(BUGS);
+
+# finally compute the accuracy
+
+$averageError = 0;
+for ($i = 0; $i < $numberNAs; $i++) {
+    $index = $N - $numberNAs + $i;
+    $errorVector[$i] = sqrt( ($xPred[$index] - $X[$randomIndex[$index]])**2 +
+			   ($yPred[$index] - $Y[$randomIndex[$index]])**2);
+    $averageError += $errorVector[$i];
+}
+@errorVector = sort @errorVector;
+if (($numberNAs % 2) == 0) {
+    $medianError = ($errorVector[$numberNAs/2] + $errorVector[($numberNAs/2)-1])/2;
+}
+else {
+    $medianError = $errorVector[($numberNAs-1)/2];
+}
+
+# this is the error at a single point - arbitrarily chosen to have index=1
+$singleError = sqrt( ($xPred[1] - $X[$randomIndex[1]])**2 +
+			   ($yPred[1] - $Y[$randomIndex[1]])**2);
+
+
+
+print $NUMITER,"\t",$HIERARCHY,"\t",$CORRIDOR, "\t",$CORRIDORMAIN, "\t",$CORRIDORINTER, "\t",
+$INFORMATIVE, "\t", $N,"\t", $numberNAs,"\t",$medianError,"\t",$singleError,"\n";
+print OUTFILE
+    $NUMITER,"\t",
+    $HIERARCHY,"\t",
+    $CORRIDOR, "\t",
+    $CORRIDORMAIN, "\t",
+    $CORRIDORINTER, "\t",
+    $INFORMATIVE, "\t",
+    $N,"\t",
+    $numberNAs,"\t",
+    $averageError/$numberNAs,"\t",
+    $medianError,"\t",
+    $singleError,"\n";
+
+}}}}}}}}
+
+close(OUTFILE);
